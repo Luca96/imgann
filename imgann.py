@@ -1,18 +1,18 @@
 # -----------------------------------------------------------------------------
 # MIT License
-
+#
 # Copyright (c) 2018 Luca Anzalone
-
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-
+#
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
-
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,9 +28,12 @@ import cv2
 import numpy as np
 import argparse
 
+from xml import Xml
+
 # global variables:
 image = None
 stack = []
+boxes = []
 points = []
 
 
@@ -41,7 +44,10 @@ def draw_circle(image, x, y):
     stack.append(np.copy(image))
     points.append((x, y))
 
-    cv2.circle(image, (x, y), radius=3, color=(255, 255, 0))
+    cv2.circle(image, (x, y), radius=3, color=(0, 255, 255), thickness=-1)
+
+    # point log
+    print(f"\r> points: {len(points)}", end='\r')
 
 
 def restore_image():
@@ -70,9 +76,11 @@ def get_arguments():
     # building and parsing command line arguments
     ap = argparse.ArgumentParser()
 
+    s = """ generate an output file of annotations, it the file ends with .xml
+        it generates an xml file ready to be used with dlib """
+
     # output file
-    ap.add_argument("-f", "--file", required=True,
-                    help="output file for annotations")
+    ap.add_argument("-f", "--file", required=True, help=s)
 
     # imput directory
     ap.add_argument("-d", "--dir", required=True,
@@ -89,12 +97,49 @@ def get_arguments():
     return vars(ap.parse_args())
 
 
+def open_file(args):
+    # return an opened output file
+    name = args["file"]
+    mode = args["append"] or "w"
+
+    if name.endswith(".xml"):
+        return Xml(name, mode=mode)
+    else:
+        return open(name, mode)
+
+
+def add_entry(out, path, boxes, points, mirror):
+    # add the image, points, boxes to the output file
+    w = image.shape[1]
+
+    # handle xml file
+    if isinstance(out, Xml):
+        out.append(path, boxes, points)
+
+        if mirror:
+            points = [(w - x, y) for x, y in points]
+            out.append(path, boxes, points)
+    else:
+        out.write(f'{path}\n')
+
+        for x, y in points:
+            out.write(f'{x} {y}')
+            out.write("\n")
+
+        if mirror:
+            out.write(f'{path}\n')
+
+            for x, y in points:
+                out.write(f'{w - x} {y}')
+                out.write("\n")
+
+
 def main():
     global image
 
     # getting arguments from cli
     args = get_arguments()
-    out = open(args["file"], args["append"] or "w")
+    out = open_file(args)
     img_dir = args["dir"]
     mirror_points = args["mirror"]
 
@@ -112,7 +157,10 @@ def main():
         path = os.path.join(img_dir, file)
         image = cv2.imread(path)
 
-        print(image.shape)
+        # clear: stack, boxes and points
+        stack.clear()
+        boxes.clear()
+        points.clear()
 
         # mouse callback to window
         cv2.setMouseCallback(window, mouse_callback)
@@ -124,20 +172,11 @@ def main():
             if cv2.waitKey(20) & 0xFF == 27:
                 break
 
-        # write annotated points
-        out.write(f'{path}\n')
+        # clear point log
+        print()
 
-        for x, y in points:
-            out.write(f'{x} {y}')
-            out.write("\n")
-
-        if mirror_points:
-            w = image.shape[1]
-            out.write(f'{path}\n')
-
-            for x, y in points:
-                out.write(f'{w - x} {y}')
-                out.write("\n")
+        # write annotations
+        add_entry(out, path, boxes, points, mirror_points)
 
     cv2.destroyAllWindows()
     out.close()
