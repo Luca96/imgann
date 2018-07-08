@@ -70,14 +70,21 @@ def get_arguments():
     # building and parsing command line arguments
     ap = argparse.ArgumentParser()
 
+    # output file
     ap.add_argument("-f", "--file", required=True,
                     help="output file for annotations")
 
+    # imput directory
     ap.add_argument("-d", "--dir", required=True,
-                    help="image directory")
+                    help="input directory with images")
 
+    # (flag) append mode
     ap.add_argument("-a", "--append", action="store_const", const='a',
                     help="open the output file in append mode")
+
+    # (flag) mirror points along x axis
+    ap.add_argument("-m", "--mirror", action="store_true",
+                    help="mirror points along x axis")
 
     return vars(ap.parse_args())
 
@@ -89,15 +96,23 @@ def main():
     args = get_arguments()
     out = open(args["file"], args["append"] or "w")
     img_dir = args["dir"]
+    mirror_points = args["mirror"]
 
     # creates a window with disabled menu when right-clicking with the mouse
     window = 'window'
     cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE | cv2.WINDOW_GUI_NORMAL)
 
     for file in os.listdir(img_dir):
+        # consider only images
+        if not (file.endswith(".jpg") or file.endswith(".jpeg") or
+                file.endswith(".png")):
+            continue
+
         # loading image:
         path = os.path.join(img_dir, file)
         image = cv2.imread(path)
+
+        print(image.shape)
 
         # mouse callback to window
         cv2.setMouseCallback(window, mouse_callback)
@@ -115,6 +130,14 @@ def main():
         for x, y in points:
             out.write(f'{x} {y}')
             out.write("\n")
+
+        if mirror_points:
+            w = image.shape[1]
+            out.write(f'{path}\n')
+
+            for x, y in points:
+                out.write(f'{w - x} {y}')
+                out.write("\n")
 
     cv2.destroyAllWindows()
     out.close()
