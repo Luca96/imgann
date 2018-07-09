@@ -25,10 +25,11 @@
 # -----------------------------------------------------------------------------
 import os
 import cv2
+import utils
 import numpy as np
-import argparse
 
 from xml import Xml
+from utils import is_image, is_mirrored
 
 # global variables:
 image = None
@@ -38,7 +39,7 @@ points = []
 
 
 def draw_circle(image, x, y):
-    # save the drawn point and backup image
+    '''save the drawn point and backup image'''
     global stack, points
 
     stack.append(np.copy(image))
@@ -51,8 +52,8 @@ def draw_circle(image, x, y):
 
 
 def restore_image():
-    # return the last image available into the stack
-    # and remove the last inserted points
+    '''return the last image available into the stack
+    and remove the last inserted points'''
     global stack, points
     size = len(stack)
 
@@ -72,61 +73,8 @@ def mouse_callback(event, x, y, flags, param):
         image = restore_image()
 
 
-def get_arguments():
-    # building and parsing command line arguments
-    ap = argparse.ArgumentParser()
-
-    s = """ generate an output file of annotations, it the file ends with .xml
-        it generates an xml file ready to be used with dlib """
-
-    # output file
-    ap.add_argument("-f", "--file", required=True, help=s)
-
-    # imput directory
-    ap.add_argument("-d", "--dir", required=True,
-                    help="input directory with images")
-
-    # (flag) append mode
-    ap.add_argument("-a", "--append", action="store_const", const='a',
-                    help="open the output file in append mode")
-
-    # (flag) mirror points and images along x axis
-    ap.add_argument("-m", "--mirror", action="store_true",
-                    help="mirror points and images along x axis")
-
-    return vars(ap.parse_args())
-
-
-def open_file(args):
-    # return an opened output file
-    name = args["file"]
-    mode = args["append"] or "w"
-
-    if name.endswith(".xml"):
-        return Xml(name, mode=mode)
-    else:
-        return open(name, mode)
-
-
-def mirror_image(image, path, axis=1):
-    # mirror image if no already mirrored image exists
-    folder, file = os.path.split(path)
-
-    if file.find("_mirror") > 0:
-        # already mirrored
-        return path
-    else:
-        # mirror image
-        mirrored = cv2.flip(image, axis)
-
-        # save image
-        new_path = os.path.join(folder, file.replace(".", "_mirror."))
-        cv2.imwrite(new_path, mirrored)
-        return new_path
-
-
 def add_entry(out, path, boxes, points, mirror):
-    # add the image, points, boxes to the output file
+    '''add the image, points, boxes to the output file'''
     w = image.shape[1]
 
     # handle xml file
@@ -134,7 +82,7 @@ def add_entry(out, path, boxes, points, mirror):
         out.append(path, boxes, points)
 
         if mirror:
-            path = mirror_image(stack[0], path)
+            path = utils.mirror_image(stack[0], path)
 
             points = [(w - x, y) for x, y in points]
             out.append(path, boxes, points)
@@ -146,7 +94,7 @@ def add_entry(out, path, boxes, points, mirror):
             out.write("\n")
 
         if mirror:
-            path = mirror_image(stack[0], path)
+            path = utils.mirror_image(stack[0], path)
 
             out.write(f'{path}\n')
 
@@ -159,19 +107,18 @@ def main():
     global image
 
     # getting arguments from cli
-    args = get_arguments()
-    out = open_file(args)
+    args = utils.get_arguments()
+    out = utils.open_file(args)
     img_dir = args["dir"]
     mirror_points = args["mirror"]
 
-    # creates a window with disabled menu when right-clicking with the mouse
-    window = 'window'
-    cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE | cv2.WINDOW_GUI_NORMAL)
-
     for file in os.listdir(img_dir):
         # consider only images
-        if not (file.endswith(".jpg") or file.endswith(".jpeg") or
-                file.endswith(".png")):
+        if not is_image(file):
+            continue
+
+        # avoid mirrored images
+        if is_mirrored(file):
             continue
 
         # loading image:
@@ -182,6 +129,12 @@ def main():
         stack.clear()
         boxes.clear()
         points.clear()
+
+        stack.append(image)
+
+        # create a window with disabled menu when right-clicking with the mouse
+        window = file
+        cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE | cv2.WINDOW_GUI_NORMAL)
 
         # mouse callback to window
         cv2.setMouseCallback(window, mouse_callback)
@@ -199,7 +152,9 @@ def main():
         # write annotations
         add_entry(out, path, boxes, points, mirror_points)
 
-    cv2.destroyAllWindows()
+        # close window
+        cv2.destroyAllWindows()
+
     out.close()
 
 
