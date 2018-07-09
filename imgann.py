@@ -90,9 +90,9 @@ def get_arguments():
     ap.add_argument("-a", "--append", action="store_const", const='a',
                     help="open the output file in append mode")
 
-    # (flag) mirror points along x axis
+    # (flag) mirror points and images along x axis
     ap.add_argument("-m", "--mirror", action="store_true",
-                    help="mirror points along x axis")
+                    help="mirror points and images along x axis")
 
     return vars(ap.parse_args())
 
@@ -108,6 +108,23 @@ def open_file(args):
         return open(name, mode)
 
 
+def mirror_image(image, path, axis=1):
+    # mirror image if no already mirrored image exists
+    folder, file = os.path.split(path)
+
+    if file.find("_mirror") > 0:
+        # already mirrored
+        return path
+    else:
+        # mirror image
+        mirrored = cv2.flip(image, axis)
+
+        # save image
+        new_path = os.path.join(folder, file.replace(".", "_mirror."))
+        cv2.imwrite(new_path, mirrored)
+        return new_path
+
+
 def add_entry(out, path, boxes, points, mirror):
     # add the image, points, boxes to the output file
     w = image.shape[1]
@@ -117,6 +134,8 @@ def add_entry(out, path, boxes, points, mirror):
         out.append(path, boxes, points)
 
         if mirror:
+            path = mirror_image(stack[0], path)
+
             points = [(w - x, y) for x, y in points]
             out.append(path, boxes, points)
     else:
@@ -127,6 +146,8 @@ def add_entry(out, path, boxes, points, mirror):
             out.write("\n")
 
         if mirror:
+            path = mirror_image(stack[0], path)
+
             out.write(f'{path}\n')
 
             for x, y in points:
