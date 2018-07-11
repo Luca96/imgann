@@ -107,10 +107,12 @@ def main():
     global image
 
     # getting arguments from cli
-    args = utils.get_arguments()
+    args = utils.cli_arguments()
     out = utils.open_file(args)
     img_dir = args["dir"]
     mirror_points = args["mirror"]
+
+    utils.init_face_detector(args)
 
     for file in os.listdir(img_dir):
         # consider only images
@@ -124,6 +126,10 @@ def main():
         # loading image:
         path = os.path.join(img_dir, file)
         image = cv2.imread(path)
+
+        # test:
+        for rect in utils.detect_faces(image):
+            utils.draw_rect(image, rect)
 
         # clear: stack, boxes and points
         stack.clear()
