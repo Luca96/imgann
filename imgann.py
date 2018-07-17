@@ -31,6 +31,11 @@ import numpy as np
 from xml import Xml
 from utils import is_image, is_mirrored
 
+# key-code constants
+KEY_ESC = 27
+KEY_S = 115
+KEY_R = 114
+
 # global variables:
 image = None
 stack = []
@@ -49,6 +54,19 @@ def draw_circle(image, x, y):
 
     # point log
     print(f"\r> points: {len(points)}", end='\r')
+
+
+def draw_face(image):
+    '''save the face and draw the face-rec'''
+    global boxes
+
+    # detect faces
+    faces = utils.detect_faces(image)
+
+    if len(faces) > 0:
+        face = faces[0]
+        utils.draw_rect(image, face)
+        boxes.append(face)
 
 
 def restore_image():
@@ -104,12 +122,13 @@ def add_entry(out, path, boxes, points, mirror):
 
 
 def main():
-    global image
+    global image, boxes
 
     # getting arguments from cli
     args = utils.cli_arguments()
     out = utils.open_file(args)
     img_dir = args["dir"]
+    auto_faces = args["auto"]
     mirror_points = args["mirror"]
 
     utils.init_face_detector(args)
@@ -127,14 +146,14 @@ def main():
         path = os.path.join(img_dir, file)
         image = cv2.imread(path)
 
-        # test:
-        for rect in utils.detect_faces(image):
-            utils.draw_rect(image, rect)
-
         # clear: stack, boxes and points
         stack.clear()
         boxes.clear()
         points.clear()
+
+        # automatically detect faces
+        if auto_faces:
+            draw_face(image)
 
         stack.append(image)
 
@@ -145,18 +164,32 @@ def main():
         # mouse callback to window
         cv2.setMouseCallback(window, mouse_callback)
 
+        # removing or skipping the current image without affecting output file
+        skipped = False
+        removed = False
+
         # showing image until esc is pressed
         while (1):
             cv2.imshow(window, image)
+            key = cv2.waitKey(20) & 0Xff
 
-            if cv2.waitKey(20) & 0xFF == 27:
+            # listen to key events
+            if key == KEY_ESC:
+                break
+            elif key == KEY_S:
+                skipped = True
+                break
+            elif key == KEY_R:
+                removed = True
+                utils.delete_image(path)
                 break
 
-        # clear point log
-        print()
+        if not (skipped or removed):
+            # clear point log
+            print()
 
-        # write annotations
-        add_entry(out, path, boxes, points, mirror_points)
+            # write annotations
+            add_entry(out, path, boxes, points, mirror_points)
 
         # close window
         cv2.destroyAllWindows()

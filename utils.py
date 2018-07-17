@@ -148,6 +148,19 @@ def detect_faces(image):
     return boxes
 
 
+def delete_image(path):
+    '''delete the given image and the mirrored one if it exists'''
+    folder, file = os.path.split(path)
+
+    # delete mirror
+    mirror = os.path.join(folder, file.replace(".", "_mirror."))
+
+    if os.path.isfile(mirror):
+        os.remove(mirror)
+
+    os.remove(path)
+
+
 # TODO: move to imgann.py (due to global boxes..)
 def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
     '''draw the given rectangle on image'''
