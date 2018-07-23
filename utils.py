@@ -37,6 +37,7 @@ caffe_proto = "caffe/deploy.prototxt"
 cf_values = (104.0, 177.0, 123.0)
 cf_size = (300, 300)
 confidence_threshold = 0.65
+state_file = ".state"
 
 # global variables:
 caffeNet = None
@@ -91,7 +92,7 @@ def cli_arguments():
     # output file
     ap.add_argument("-o", "--out", required=True, help=s)
 
-    # imput directory
+    # input directory
     ap.add_argument("-d", "--dir", required=True,
                     help="input directory with images")
 
@@ -159,6 +160,37 @@ def delete_image(path):
         os.remove(mirror)
 
     os.remove(path)
+
+
+def load_state(flag):
+    '''return the content of the state file about the last stopped execution'''
+    resume, path = False, None
+
+    if not os.path.exists(state_file):
+        # create the checkpoint-file
+        file = open(state_file, mode="w")
+        file.close()
+    else:
+        # load the content of the file
+        file = open(state_file, mode="r")
+        path = file.read()
+        print("path: " + path)
+        resume = len(path) > 0
+
+    return resume and flag, path
+
+
+def save_state(path):
+    '''update the state file with the new path'''
+    file = open(state_file, mode="w")
+    file.write(path)
+    file.close()
+
+
+def delete_state():
+    '''remove the state file'''
+    if os.path.isfile(state_file):
+        os.remove(state_file)
 
 
 # TODO: move to imgann.py (due to global boxes..)

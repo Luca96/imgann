@@ -35,6 +35,7 @@ from utils import is_image, is_mirrored
 KEY_ESC = 27
 KEY_S = 115
 KEY_R = 114
+KEY_Q = 113
 
 # global variables:
 image = None
@@ -121,8 +122,18 @@ def add_entry(out, path, boxes, points, mirror):
                 out.write("\n")
 
 
+def quit(path, out):
+    '''terminate the script without wrtiting to output file, moreover
+    creates a checkpoint to eventually resume the work'''
+    out.close()
+    cv2.destroyAllWindows()
+
+    # save current work
+    utils.save_state(path)
+
+
 def main():
-    global image, boxes
+    global image, boxes, points
 
     # getting arguments from cli
     args = utils.cli_arguments()
@@ -131,7 +142,11 @@ def main():
     auto_faces = args["auto"]
     mirror_points = args["mirror"]
 
+    # cnn face detector
     utils.init_face_detector(args)
+
+    # recover last state (if append is true)
+    resume, lastpath = utils.load_state(args["append"])
 
     for file in os.listdir(img_dir):
         # consider only images
@@ -142,8 +157,16 @@ def main():
         if is_mirrored(file):
             continue
 
-        # loading image:
+        # load image:
         path = os.path.join(img_dir, file)
+
+        # trying to resume from the image located at lastpath
+        if resume:
+            if path == lastpath:
+                resume = False
+            else:
+                continue
+
         image = cv2.imread(path)
 
         # clear: stack, boxes and points
@@ -183,6 +206,8 @@ def main():
                 removed = True
                 utils.delete_image(path)
                 break
+            elif key == KEY_Q:
+                return quit(path, out)
 
         if not (skipped or removed):
             # clear point log
@@ -194,6 +219,8 @@ def main():
         # close window
         cv2.destroyAllWindows()
 
+    # delete checkpoint file and close output file
+    utils.delete_state()
     out.close()
 
 
