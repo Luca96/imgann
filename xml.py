@@ -61,11 +61,11 @@ class Xml:
         for i, box in enumerate(boxes):
             t, l, w, h = box
 
-            s = f"{t2}<box top='{t}' left='{l}' width='{w}' height='{h}'\n>"
+            s = f"{t2}<box top='{t}' left='{l}' width='{w}' height='{h}'>\n"
             f.write(s)
 
             for k, points in enumerate(points[i]):
-                x, y = points[k]
+                x, y = points
                 f.write(f"{t3}<part name='{k}' x='{x}' y='{y}'/>\n")
 
             f.write(f"{t2}</box>\n")

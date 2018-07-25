@@ -98,13 +98,13 @@ def add_entry(out, path, boxes, points, mirror):
 
     # handle xml file
     if isinstance(out, Xml):
-        out.append(path, boxes, points)
+        out.append(path, boxes, [points])
 
         if mirror:
             path = utils.mirror_image(stack[0], path)
 
             points = [(w - x, y) for x, y in points]
-            out.append(path, boxes, points)
+            out.append(path, boxes, [points])
     else:
         out.write(f'{path}\n')
 
@@ -141,6 +141,10 @@ def main():
     img_dir = args["dir"]
     auto_faces = args["auto"]
     mirror_points = args["mirror"]
+
+    if args["train"] is not None:
+        # skip everything and train the model
+        return utils.train_model(out.path, args["train"])
 
     # cnn face detector
     utils.init_face_detector(args)

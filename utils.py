@@ -25,6 +25,7 @@
 # -----------------------------------------------------------------------------
 import os
 import cv2
+import dlib
 import numpy as np
 import argparse
 from xml import Xml
@@ -64,6 +65,9 @@ def open_file(args):
     '''return an opened output file'''
     name = args["out"]
     mode = args["append"] or "w"
+
+    if args["train"]:
+        mode = "a"
 
     if name.endswith(".xml"):
         return Xml(name, mode=mode)
@@ -107,6 +111,10 @@ def cli_arguments():
     # (flag) detect faces automatically
     ap.add_argument("--auto", action="store_true",
                     help="detect faces automatically")
+
+    # (optional) train a model
+    ap.add_argument("-t", "--train", required=False,
+                    help="train a dlib shape-predictor model")
 
     return vars(ap.parse_args())
 
@@ -193,7 +201,19 @@ def delete_state():
         os.remove(state_file)
 
 
-# TODO: move to imgann.py (due to global boxes..)
+def train_model(xml_path, model_path):
+    '''tran a dlib shape-predictor model based on xml'''
+    # model options
+    options = dlib.shape_predictor_training_options()
+    options.tree_depth = 3
+    options.nu = 0.1
+    options.cascade_depth = 13
+    options.be_verbose = True
+
+    # train and save
+    dlib.train_shape_predictor(xml_path, model_path, options)
+
+
 def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
     '''draw the given rectangle on image'''
     top_left = (rect[0], rect[1])
