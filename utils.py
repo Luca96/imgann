@@ -112,6 +112,10 @@ def cli_arguments():
     ap.add_argument("--auto", action="store_true",
                     help="detect faces automatically")
 
+    # (optional) detect landmarks
+    ap.add_argument("-l", "--land", required=False,
+                    help="automatically detect landmark")
+
     # (optional) train a model
     ap.add_argument("-t", "--train", required=False,
                     help="train a dlib shape-predictor model")
@@ -182,7 +186,6 @@ def load_state(flag):
         # load the content of the file
         file = open(state_file, mode="r")
         path = file.read()
-        print("path: " + path)
         resume = len(path) > 0
 
     return resume and flag, path

@@ -25,6 +25,7 @@
 # -----------------------------------------------------------------------------
 import os
 import cv2
+import dlib
 import utils
 import numpy as np
 
@@ -42,6 +43,7 @@ image = None
 stack = []
 boxes = []
 points = []
+predictor = None
 
 
 def draw_circle(image, x, y):
@@ -132,6 +134,17 @@ def quit(path, out):
     utils.save_state(path)
 
 
+def detect_landmarks(image, face):
+    '''detect face landmarks with dlib shape predictor model'''
+    t, l, r, b = face
+    rect = dlib.rectangle(t, l, r, b)
+    shape = predictor(image, rect)
+
+    for i in range(0, 68):
+        point = shape.part(i)
+        draw_circle(image, point.x, point.y)
+
+
 def main():
     global image, boxes, points
 
@@ -139,15 +152,21 @@ def main():
     args = utils.cli_arguments()
     out = utils.open_file(args)
     img_dir = args["dir"]
+    auto_landm = args["land"] is not None
     auto_faces = args["auto"]
     mirror_points = args["mirror"]
 
-    if args["train"] is not None:
+    if args["train"] is True:
         # skip everything and train the model
         return utils.train_model(out.path, args["train"])
 
     # cnn face detector
     utils.init_face_detector(args)
+
+    # load shape predictor if requested
+    if auto_faces and auto_landm:
+        global predictor
+        predictor = dlib.shape_predictor(args["land"])
 
     # recover last state (if append is true)
     resume, lastpath = utils.load_state(args["append"])
@@ -181,6 +200,10 @@ def main():
         # automatically detect faces
         if auto_faces:
             draw_face(image)
+
+            # and landmarks
+            if auto_landm:
+                detect_landmarks(image, boxes[-1])
 
         stack.append(image)
 
