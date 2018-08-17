@@ -36,29 +36,23 @@ from cv2.dnn import blobFromImage
 caffe_model = "caffe/res10_300x300_ssd_iter_140000.caffemodel"
 caffe_proto = "caffe/deploy.prototxt"
 cf_values = (104.0, 177.0, 123.0)
-cf_size = (300, 300)
+# cf_size = (300, 300)
+# cf_size = (200, 200) # better
+cf_size = (150, 150)  # best, detect even small faces
 confidence_threshold = 0.65
 state_file = ".state"
 
 # global variables:
 caffeNet = None
+shape_predictor = None
 
 
-def mirror_image(image, path, axis=1):
-    '''mirror image if no already mirrored image exists'''
-    folder, file = os.path.split(path)
-
-    if file.find("_mirror") > 0:
-        # already mirrored
-        return path
-    else:
-        # mirror image
-        mirrored = cv2.flip(image, axis)
-
-        # save image
-        new_path = os.path.join(folder, file.replace(".", "_mirror."))
-        cv2.imwrite(new_path, mirrored)
-        return new_path
+class Keys:
+    '''opencv key constants'''
+    S = 115
+    R = 114
+    Q = 113
+    ESC = 27
 
 
 def open_file(args):
@@ -73,17 +67,6 @@ def open_file(args):
         return Xml(name, mode=mode)
     else:
         return open(name, mode)
-
-
-def is_image(file):
-    '''check if the given file is an image'''
-    return (file.endswith(".jpg") or file.endswith(".jpeg") or
-            file.endswith(".png"))
-
-
-def is_mirrored(img_file):
-    '''check if the given image is the mirror of another one'''
-    return img_file.find("_mirror") > 0
 
 
 def cli_arguments():
@@ -121,57 +104,6 @@ def cli_arguments():
                     help="train a dlib shape-predictor model")
 
     return vars(ap.parse_args())
-
-
-def init_face_detector(args):
-    '''load the caffe-model if --auto flag is specified'''
-    global caffeNet
-
-    if args["auto"]:
-        caffeNet = cv2.dnn.readNetFromCaffe(caffe_proto, caffe_model)
-
-
-def detect_faces(image):
-    '''detect every face inside image.
-       Returns a list of tuple\\rectangles: (top, left, right, bottom)'''
-    assert(caffeNet)
-
-    # get image dimension
-    (h, w) = image.shape[:2]
-    np_arr = np.array([w, h, w, h])
-
-    # convert image to blob (that do some preprocessing..)
-    blob = blobFromImage(cv2.resize(image, cf_size), 1.0,
-                         cf_size, cf_values)
-
-    # obtain detections and predictions
-    caffeNet.setInput(blob)
-    detections = caffeNet.forward()
-
-    # detected face-boxes
-    boxes = []
-    for i in range(0, detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
-
-        if confidence >= confidence_threshold:
-            # compute the bounding box of the face
-            box = detections[0, 0, i, 3:7] * np_arr
-            boxes.append(box.astype("int"))
-
-    return boxes
-
-
-def delete_image(path):
-    '''delete the given image and the mirrored one if it exists'''
-    folder, file = os.path.split(path)
-
-    # delete mirror
-    mirror = os.path.join(folder, file.replace(".", "_mirror."))
-
-    if os.path.isfile(mirror):
-        os.remove(mirror)
-
-    os.remove(path)
 
 
 def load_state(flag):
@@ -217,9 +149,190 @@ def train_model(xml_path, model_path):
     dlib.train_shape_predictor(xml_path, model_path, options)
 
 
+# -----------------------------------------------------------------------------
+# -- IMAGE UTILS
+# -----------------------------------------------------------------------------
+def crop_image(image, roi, scale=1):
+    '''returns the cropped image according to a region-of-interest'''
+    t, l, r, b = int(roi[0]), int(roi[1]), int(roi[2]), int(roi[3])
+
+    if scale != 1:
+        w = r - l
+        h = b - t
+        cx = r - w / 2
+        cy = b - h / 2
+        w = w * scale
+        h = h * scale
+        hw = w / 2
+        hh = h / 2
+
+        t, b = int(cy - hh), int(cy + hh)
+        l, r = int(cx - hw), int(cx + hw)
+
+    ih, iw = image.shape[:2]
+
+    if t < 0:
+        t = 0
+
+    if b > ih:
+        b = ih
+
+    if l < 0:
+        l = 0
+
+    if r > iw:
+        r = iw
+
+    return image[t:b, l:r].copy(), (t, l, r, b)
+
+
+def delete_image(path):
+    '''delete the given image and the mirrored one if it exists'''
+    folder, file = os.path.split(path)
+
+    # delete mirror
+    mirror = os.path.join(folder, file.replace(".", "_mirror."))
+
+    if os.path.isfile(mirror):
+        os.remove(mirror)
+
+    os.remove(path)
+
+
+def is_image(file):
+    '''check if the given file is an image'''
+    return (file.endswith(".jpg") or file.endswith(".jpeg") or
+            file.endswith(".png"))
+
+
+def is_mirrored(img_file):
+    '''check if the given image is the mirror of another one'''
+    return img_file.find("_mirror") > 0
+
+
+def mirror_image(image, path, axis=1):
+    '''mirror image if no already mirrored image exists'''
+    folder, file = os.path.split(path)
+
+    if file.find("_mirror") > 0:
+        # already mirrored
+        return path
+    else:
+        # mirror image
+        mirrored = cv2.flip(image, axis)
+
+        # save image
+        new_path = os.path.join(folder, file.replace(".", "_mirror."))
+        cv2.imwrite(new_path, mirrored)
+        return new_path
+
+
+# -----------------------------------------------------------------------------
+# -- FACE UTILS
+# -----------------------------------------------------------------------------
+def init_face_detector(flag=False, min_size=150, max_size=150):
+    '''load the caffe-model if --auto flag is specified'''
+    global caffeNet, cf_size
+
+    if flag is True:
+        cf_size = (min_size, max_size)
+        caffeNet = cv2.dnn.readNetFromCaffe(caffe_proto, caffe_model)
+
+
+def detect_faces(image):
+    '''detect every face inside image.
+       Returns a list of tuple\\rectangles: (top, left, right, bottom)'''
+    assert(caffeNet)
+
+    # get image dimension
+    (h, w) = image.shape[:2]
+    np_arr = np.array([w, h, w, h])
+
+    # convert image to blob (that do some preprocessing..)
+    blob = blobFromImage(cv2.resize(image, cf_size), 1.0,
+                         cf_size, cf_values)
+
+    # obtain detections and predictions
+    caffeNet.setInput(blob)
+    detections = caffeNet.forward()
+
+    # detected face-boxes
+    boxes = []
+    for i in range(0, detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+
+        if confidence >= confidence_threshold:
+            # compute the bounding box of the face
+            box = detections[0, 0, i, 3:7] * np_arr
+            box = box.astype("int")
+            boxes.append((box[1], box[0], box[2], box[3]))
+
+    return boxes
+
+
+def faces_inside(directory="", scale_factor=1):
+    '''generate all faces within a given directory'''
+
+    for path, dirs, files in os.walk(directory):
+        # scan every file in subfolders
+        for file in files:
+            # skip non-image file
+            if not is_image(file):
+                continue
+
+            # load image
+            img_path = os.path.join(path, file)
+            image = cv2.imread(img_path)
+
+            # detect faces within image
+            for region in detect_faces(image):
+                # crop the region
+                face, new_region = crop_image(image, region, scale_factor)
+
+                yield face, new_region
+
+
+# -----------------------------------------------------------------------------
+# -- LANDMARK DETECTION
+# -----------------------------------------------------------------------------
+def load_shape_predictor(model_path):
+    '''load the dlib shape predictor model'''
+    global shape_predictor
+    shape_predictor = dlib.shape_predictor(model_path)
+
+
+def detect_landmarks(face, region):
+    '''detect landmarks for the given face and face region,
+    returns an array of tuples (x, y)'''
+    t, l, r, b = region
+    rect = dlib.rectangle(t, l, r, b)
+    shape = shape_predictor(face, rect)
+    points = []
+
+    for i in range(0, shape.num_parts):
+        point = shape.part(i)
+        points.append((point.x, point.y))
+
+    return points
+
+
+# -----------------------------------------------------------------------------
+# -- DRAWING FUNCTIONS
+# -----------------------------------------------------------------------------
 def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
     '''draw the given rectangle on image'''
     top_left = (rect[0], rect[1])
     right_bm = (rect[2], rect[3])
     cv2.rectangle(image, top_left, right_bm, color, thickness)
+
+
+def draw_point(image, x, y, r=3, c=(0, 255, 255), t=-1):
+    '''draw a circle on image at the given coordinate'''
+    cv2.circle(image, (x, y), radius=r, color=c, thickness=t)
+
+
+def draw_points(image, points, r=3, c=(0, 255, 255), t=-1):
+    '''draw a list of (x, y) point tuple'''
+    for p in points:
+        cv2.circle(image, (p[0], p[1]), radius=r, color=c, thickness=t)
 # -----------------------------------------------------------------------------
