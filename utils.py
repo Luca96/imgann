@@ -39,6 +39,7 @@ cf_values = (104.0, 177.0, 123.0)
 # cf_size = (300, 300)
 # cf_size = (200, 200) # better
 cf_size = (150, 150)  # best, detect even small faces
+cf_scale = 1.0
 confidence_threshold = 0.65
 state_file = ".state"
 
@@ -183,7 +184,7 @@ def crop_image(image, roi, scale=1):
     if r > iw:
         r = iw
 
-    return image[t:b, l:r].copy(), (t, l, r, b)
+    return image[l:b, t:r].copy(), (t, l, r, b)
 
 
 def delete_image(path):
@@ -227,15 +228,33 @@ def mirror_image(image, path, axis=1):
         return new_path
 
 
+def images_inside(directory=""):
+    '''generate all the images within the given directory'''
+
+    for path, dirs, files in os.walk(directory):
+        # scan every file in subfolders
+        for file in files:
+            # skip non-image file
+            if not is_image(file):
+                continue
+
+            # load image
+            img_path = os.path.join(path, file)
+
+            yield cv2.imread(img_path)
+
+
 # -----------------------------------------------------------------------------
 # -- FACE UTILS
 # -----------------------------------------------------------------------------
-def init_face_detector(flag=False, min_size=150, max_size=150):
-    '''load the caffe-model if --auto flag is specified'''
-    global caffeNet, cf_size
+def init_face_detector(flag=False, size=150, scale_factor=1.0):
+    '''load the caffe-model if --auto flag is specified,
+    typical values are: 224×224, 227×227, or 299×299'''
+    global caffeNet, cf_size, cf_scale
 
     if flag is True:
-        cf_size = (min_size, max_size)
+        cf_size = (size, size)
+        cf_scale = scale_factor
         caffeNet = cv2.dnn.readNetFromCaffe(caffe_proto, caffe_model)
 
 
@@ -249,8 +268,8 @@ def detect_faces(image):
     np_arr = np.array([w, h, w, h])
 
     # convert image to blob (that do some preprocessing..)
-    blob = blobFromImage(cv2.resize(image, cf_size), 1.0,
-                         cf_size, cf_values)
+    blob = blobFromImage(cv2.resize(image, cf_size), cf_scale,
+                         size=cf_size, mean=cf_values, swapRB=True)
 
     # obtain detections and predictions
     caffeNet.setInput(blob)
@@ -264,8 +283,7 @@ def detect_faces(image):
         if confidence >= confidence_threshold:
             # compute the bounding box of the face
             box = detections[0, 0, i, 3:7] * np_arr
-            box = box.astype("int")
-            boxes.append((box[1], box[0], box[2], box[3]))
+            boxes.append(box.astype("int"))
 
     return boxes
 
@@ -285,8 +303,11 @@ def faces_inside(directory="", scale_factor=1):
             image = cv2.imread(img_path)
 
             # detect faces within image
-            for region in detect_faces(image):
+            regions = detect_faces(image)
+
+            for region in regions:
                 # crop the region
+                print(region)
                 face, new_region = crop_image(image, region, scale_factor)
 
                 yield face, new_region
@@ -320,7 +341,7 @@ def detect_landmarks(face, region):
 # -- DRAWING FUNCTIONS
 # -----------------------------------------------------------------------------
 def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
-    '''draw the given rectangle on image'''
+    '''draw the given rectangle (top, left, right, bottom) on image'''
     top_left = (rect[0], rect[1])
     right_bm = (rect[2], rect[3])
     cv2.rectangle(image, top_left, right_bm, color, thickness)
