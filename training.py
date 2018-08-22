@@ -87,7 +87,7 @@ def build_trainset(input_dir="data", output_dir="trainset", win_size=321):
     window = "window"
     cv2.namedWindow(window)
 
-    for face, box in utils.faces_inside(input_dir, 1):
+    for face, box in utils.faces_inside(input_dir, 1, True):
         face_copy = face.copy()
         face_rect = region(face)
 
@@ -175,7 +175,7 @@ def test(folder="testset", model="dlib/shape_predictor_68_face_landmarks.dat"):
                 break
 
 
-def augment():
+def test_augment():
     utils.init_face_detector(True, 321)
     utils.load_shape_predictor("dlib/shape_predictor_68_face_landmarks.dat")
 

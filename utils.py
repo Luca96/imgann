@@ -150,56 +150,6 @@ def cli_arguments():
     return vars(ap.parse_args())
 
 
-def load_state(flag):
-    '''return the content of the state file about the last stopped execution'''
-    resume, path = False, None
-
-    if not os.path.exists(state_file):
-        # create the checkpoint-file
-        file = open(state_file, mode="w")
-        file.close()
-    else:
-        # load the content of the file
-        file = open(state_file, mode="r")
-        path = file.read()
-        resume = len(path) > 0
-
-    return resume and flag, path
-
-
-def save_state(path):
-    '''update the state file with the new path'''
-    file = open(state_file, mode="w")
-    file.write(path)
-    file.close()
-
-
-def delete_state():
-    '''remove the state file'''
-    if os.path.isfile(state_file):
-        os.remove(state_file)
-
-
-def train_model(xml_path, model_path):
-    '''tran a dlib shape-predictor model based on xml'''
-    # model options
-    options = dlib.shape_predictor_training_options()
-    options.tree_depth = 3
-    options.nu = 0.1
-    options.cascade_depth = 13
-    options.be_verbose = True
-
-    # train and save
-    dlib.train_shape_predictor(xml_path, model_path, options)
-
-
-def count_files_inside(directory="."):
-    '''return the number of files (does not consider folders) in directory'''
-    path, dirs, files = next(os.walk(directory))
-
-    return len(files)
-
-
 # -----------------------------------------------------------------------------
 # -- FILE UTILS
 # -----------------------------------------------------------------------------
@@ -215,6 +165,13 @@ def open_file(args):
         return Xml(name, mode=mode)
     else:
         return open(name, mode)
+
+
+def count_files_inside(directory="."):
+    '''return the number of files (does not consider folders) in directory'''
+    path, dirs, files = next(os.walk(directory))
+
+    return len(files)
 
 
 # -----------------------------------------------------------------------------
@@ -356,8 +313,9 @@ def detect_faces(image):
     return boxes
 
 
-def faces_inside(directory="", scale_factor=1):
-    '''generate all faces within a given directory'''
+def faces_inside(directory="", scale_factor=1, remove_image=False):
+    '''generate all faces within a given directory and optionally remove the
+    images'''
 
     for path, dirs, files in os.walk(directory):
         # scan every file in subfolders
@@ -378,6 +336,9 @@ def faces_inside(directory="", scale_factor=1):
                 face, new_region = crop_image(image, region, scale_factor)
 
                 yield face, new_region
+
+            if remove_image is True:
+                os.remove(os.path.join(path, file))
 
 
 # -----------------------------------------------------------------------------
