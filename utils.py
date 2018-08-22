@@ -26,9 +26,13 @@
 import os
 import cv2
 import dlib
+import json
 import numpy as np
 import argparse
+
+
 from xml import Xml
+from math import radians, sin, cos
 from cv2.dnn import blobFromImage
 
 
@@ -40,7 +44,8 @@ cf_values = (104.0, 177.0, 123.0)
 # cf_size = (200, 200) # better
 cf_size = (150, 150)  # best, detect even small faces
 cf_scale = 1.0
-confidence_threshold = 0.65
+confidence_threshold = 0.55
+
 state_file = ".state"
 
 # global variables:
@@ -48,6 +53,9 @@ caffeNet = None
 shape_predictor = None
 
 
+# -----------------------------------------------------------------------------
+# -- CLASS UTILS
+# -----------------------------------------------------------------------------
 class Keys:
     '''opencv key constants'''
     S = 115
@@ -56,20 +64,55 @@ class Keys:
     ESC = 27
 
 
-def open_file(args):
-    '''return an opened output file'''
-    name = args["out"]
-    mode = args["append"] or "w"
-
-    if args["train"]:
-        mode = "a"
-
-    if name.endswith(".xml"):
-        return Xml(name, mode=mode)
-    else:
-        return open(name, mode)
+class Colors:
+    '''a set of predefined BGR colors for drawing functions'''
+    white = (255, 255, 255)
+    black = (0, 0, 0)
+    cyan = (255, 255, 128)
+    blue = (255, 0, 0)
+    green = (0, 255, 0)
+    red = (0, 0, 255)
+    yellow = (0, 255, 255)
+    purple = (255, 64, 255)
 
 
+class Annotation:
+    '''face annotations'''
+
+    def __init__(self, path, box=[], points=[]):
+        self.path = path
+        self.box = box
+        self.points = points
+
+    def save(self):
+        '''save the annotation obj to a file'''
+        with open(self.path, "w") as file:
+            file.write(json.dumps({'box': self.box, 'points': self.points}))
+
+        return self
+
+    def load(self):
+        '''load an annotation obj froma file'''
+        print(self.path)
+        with open(self.path, 'r') as file:
+            data = json.loads(file.read())
+            self.box = data["box"]
+            self.points = data["points"]
+
+        return self
+
+    def inside(folder="."):
+        '''iterate through all annotation inside the given folder'''
+        for img, path in images_inside(folder):
+            folder, file = os.path.split(path)
+
+            # load the annotation relative to the current image
+            ann_path = os.path.join(folder, file.split(".")[0] + ".ann")
+
+            yield Annotation(ann_path).load(), path
+
+
+# -----------------------------------------------------------------------------
 def cli_arguments():
     '''build and parse command line arguments'''
     ap = argparse.ArgumentParser()
@@ -150,6 +193,30 @@ def train_model(xml_path, model_path):
     dlib.train_shape_predictor(xml_path, model_path, options)
 
 
+def count_files_inside(directory="."):
+    '''return the number of files (does not consider folders) in directory'''
+    path, dirs, files = next(os.walk(directory))
+
+    return len(files)
+
+
+# -----------------------------------------------------------------------------
+# -- FILE UTILS
+# -----------------------------------------------------------------------------
+def open_file(args):
+    '''return an opened output file'''
+    name = args["out"]
+    mode = args["append"] or "w"
+
+    if args["train"]:
+        mode = "a"
+
+    if name.endswith(".xml"):
+        return Xml(name, mode=mode)
+    else:
+        return open(name, mode)
+
+
 # -----------------------------------------------------------------------------
 # -- IMAGE UTILS
 # -----------------------------------------------------------------------------
@@ -187,6 +254,16 @@ def crop_image(image, roi, scale=1):
     return image[l:b, t:r].copy(), (t, l, r, b)
 
 
+def rotate_image(image, angle=0):
+    '''rotate the given image'''
+    h, w = image.shape[:2]
+    center = (w / 2, h / 2)
+
+    M = cv2.getRotationMatrix2D(center, angle, 1)
+
+    return cv2.warpAffine(image, M, (w, h))
+
+
 def delete_image(path):
     '''delete the given image and the mirrored one if it exists'''
     folder, file = os.path.split(path)
@@ -211,21 +288,9 @@ def is_mirrored(img_file):
     return img_file.find("_mirror") > 0
 
 
-def mirror_image(image, path, axis=1):
-    '''mirror image if no already mirrored image exists'''
-    folder, file = os.path.split(path)
-
-    if file.find("_mirror") > 0:
-        # already mirrored
-        return path
-    else:
-        # mirror image
-        mirrored = cv2.flip(image, axis)
-
-        # save image
-        new_path = os.path.join(folder, file.replace(".", "_mirror."))
-        cv2.imwrite(new_path, mirrored)
-        return new_path
+def flip_image(image, axis=1):
+    '''mirror the given image along x axis by default'''
+    return cv2.flip(image, axis)
 
 
 def images_inside(directory=""):
@@ -241,7 +306,7 @@ def images_inside(directory=""):
             # load image
             img_path = os.path.join(path, file)
 
-            yield cv2.imread(img_path)
+            yield cv2.imread(img_path), img_path
 
 
 # -----------------------------------------------------------------------------
@@ -249,7 +314,7 @@ def images_inside(directory=""):
 # -----------------------------------------------------------------------------
 def init_face_detector(flag=False, size=150, scale_factor=1.0):
     '''load the caffe-model if --auto flag is specified,
-    typical values are: 224×224, 227×227, or 299×299'''
+    typical values are: 224, 227, 299, 321'''
     global caffeNet, cf_size, cf_scale
 
     if flag is True:
@@ -266,6 +331,9 @@ def detect_faces(image):
     # get image dimension
     (h, w) = image.shape[:2]
     np_arr = np.array([w, h, w, h])
+
+    if h <= 0 or w <= 0:
+        return []
 
     # convert image to blob (that do some preprocessing..)
     blob = blobFromImage(cv2.resize(image, cf_size), cf_scale,
@@ -307,14 +375,13 @@ def faces_inside(directory="", scale_factor=1):
 
             for region in regions:
                 # crop the region
-                print(region)
                 face, new_region = crop_image(image, region, scale_factor)
 
                 yield face, new_region
 
 
 # -----------------------------------------------------------------------------
-# -- LANDMARK DETECTION
+# -- LANDMARK UTILS
 # -----------------------------------------------------------------------------
 def load_shape_predictor(model_path):
     '''load the dlib shape predictor model'''
@@ -337,8 +404,28 @@ def detect_landmarks(face, region):
     return points
 
 
+def rotate_landmarks(points, center, angle=0):
+    '''rotate the given points according to the specified angle'''
+    rad = radians(-angle)
+    siny = sin(rad)
+    cosx = cos(rad)
+
+    new_pts = []
+
+    for p in points:
+        x = p[0] - center[0]
+        y = p[1] - center[1]
+
+        px = int(x * cosx - y * siny + center[0])
+        py = int(x * siny + y * cosx + center[1])
+
+        new_pts.append((px, py))
+
+    return new_pts
+
+
 # -----------------------------------------------------------------------------
-# -- DRAWING FUNCTIONS
+# -- DRAWING UTILS
 # -----------------------------------------------------------------------------
 def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
     '''draw the given rectangle (top, left, right, bottom) on image'''
@@ -347,13 +434,15 @@ def draw_rect(image, rect, color=(128, 0, 128), thickness=1):
     cv2.rectangle(image, top_left, right_bm, color, thickness)
 
 
-def draw_point(image, x, y, r=3, c=(0, 255, 255), t=-1):
+def draw_point(image, x, y, radius=3, color=(0, 255, 255), thickness=-1):
     '''draw a circle on image at the given coordinate'''
-    cv2.circle(image, (x, y), radius=r, color=c, thickness=t)
+    cv2.circle(image, (x, y), radius, color, thickness)
 
 
-def draw_points(image, points, r=3, c=(0, 255, 255), t=-1):
+def draw_points(image, points, radius=3, color=(0, 255, 255), thickness=-1):
     '''draw a list of (x, y) point tuple'''
-    for p in points:
-        cv2.circle(image, (p[0], p[1]), radius=r, color=c, thickness=t)
+    for i, p in enumerate(points):
+        cv2.circle(image, (p[0], p[1]), radius, color, thickness)
+        cv2.putText(image, str(i), (p[0], p[1]), cv2.FONT_HERSHEY_SIMPLEX,
+                    radius / 10, Colors.white)
 # -----------------------------------------------------------------------------

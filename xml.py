@@ -44,7 +44,7 @@ t3 = "      "
 # -- Class
 # -----------------------------------------------------------------------------
 class Xml:
-    def __init__(self, name, path="", mode="w"):
+    def __init__(self, name="xml.xml", path=".", mode="w"):
         self.path = os.path.join(path, name)
         self.file = open(self.path, mode)
         self.mode = mode
