@@ -24,6 +24,9 @@
 # -- Error: provide functions to analize the shape_predictor accuracy
 # -----------------------------------------------------------------------------
 import math
+import utils
+
+from utils import Colors
 
 
 def __distance(p1, p2):
@@ -68,3 +71,76 @@ def point_to_point(truth, measured):
             Min = err
 
     return Min, Max, Avg / num
+
+
+def of_dataset(folder="testset", model=None, view=False):
+    '''measure the error across the given dataset,
+    it compares the measured points with the annotated ground truth,
+    optionally you can [view] the results'''
+    assert(model)
+
+    # load face and landmark detectors
+    utils.load_shape_predictor(model)
+    utils.init_face_detector(True, 150)
+
+    # init average-error
+    err = 0
+    num = 0
+
+    for img, lmarks, path in utils.ibug_dataset(folder):
+        num = num + 1
+
+        # detections
+        face = utils.prominent_face(utils.detect_faces(img))
+        measured = utils.detect_landmarks(img, face)
+
+        # get error
+        err += normalized_root_mean_square(lmarks, measured)
+
+        # results:
+        if view is True:
+            utils.draw_rect(img, face, color=Colors.yellow)
+            utils.draw_points(img, lmarks, color=Colors.green)
+            utils.draw_points(img, measured, color=Colors.red)
+            utils.show_image(utils.show_properly(utils.crop_image(img, face)))
+
+    print("average NRMS Error for {} is {}".format(folder, err / num))
+
+
+def compare_models(folder="trainset", m1=None, m2=None, view=False):
+    '''compare the [m1] shape_predictor aganist the [m2] model,
+    optionally you can [view] the results'''
+    assert(m1 and m2)
+
+    utils.init_face_detector(True, 150)
+
+    # load models
+    utils.load_shape_predictor(m2)
+    sp_m2 = utils.shape_predictor
+
+    utils.load_shape_predictor(m1)
+    sp_m1 = utils.shape_predictor
+
+    # init error
+    err = 0
+    num = 0
+
+    for face, region in utils.faces_inside(folder):
+        # detect landmarks
+        utils.shape_predictor = sp_m1
+        lmarks_m1 = utils.detect_landmarks(face, region)
+
+        utils.shape_predictor = sp_m2
+        lmarks_m2 = utils.detect_landmarks(face, region)
+
+        # update error:
+        num += 1
+        err += normalized_root_mean_square(lmarks_m1, lmarks_m2)
+
+        # results:
+        if view is True:
+            utils.draw_points(face, lmarks_m1, color=Colors.green)
+            utils.draw_points(face, lmarks_m2, color=Colors.red)
+            utils.show_image(utils.show_properly(face))
+
+    print("the NRMSE of m1 aganist m2 is {}".format(err / num))
