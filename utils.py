@@ -87,10 +87,8 @@ class Annotation:
 
     def save(self):
         '''save the annotation obj to a file'''
-        with open(self.path, "w") as file:
-            file.write(json.dumps({'box': self.box, 'points': self.points}))
-
-        return self
+        with open(self.path, "w") as f:
+            f.write(json.dumps({'box': self.box, 'points': self.points}))
 
     def load(self):
         '''load an annotation obj froma file'''
@@ -107,16 +105,19 @@ class Annotation:
             folder, file = os.path.split(path)
 
             # load the annotation relative to the current image
-            ann_path = os.path.join(folder, file.split(".")[-1] + ".ann")
+            ann_path = os.path.join(folder, file.split(".")[0] + ".ann")
 
             yield Annotation(ann_path).load(), path
 
-    def parse_ibug_annotation(file=None):
+    def read_ibug_annotation(path=None):
         '''returns an array of the points defined inside the given
         annotation file'''
-        pts = []
+        assert(path)
 
-        for line in file.readlines()[3:-2]:
+        pts = []
+        ann = open(path, "r")
+
+        for line in ann.readlines()[3:-1]:
             x, y = line.split()[:2]
             x = int(x.split(".")[0])
             y = int(y.split(".")[0])
@@ -370,6 +371,10 @@ def file_iter(dir=".", ext=None):
             if (ext is None) or file.endswith(ext):
                 yield os.path.join(path, file), file
 
+        for d in dirs:
+            for p, f in file_iter(dir=os.path.join(path, d), ext=ext):
+                yield p, f
+
 
 # -----------------------------------------------------------------------------
 # -- IMAGE UTILS
@@ -461,6 +466,17 @@ def show_image(image, window="window", onSkip=void, onQuit=void):
             return exit()
 
 
+def show_properly(image, size=600):
+    '''resize too large images'''
+    h, w = image.shape[:2]
+    ratio = h / w
+
+    fx = 1 / (w * ratio / size)
+    fy = 1 / (h / size)
+
+    return cv2.resize(image, None, fx=fx, fy=fy, interpolation=cv2.INTER_CUBIC)
+
+
 # -----------------------------------------------------------------------------
 # -- FACE UTILS
 # -----------------------------------------------------------------------------
@@ -533,6 +549,7 @@ def faces_inside(directory="", scale_factor=1, remove_image=False):
 
     for path, dirs, files in os.walk(directory):
         # scan every file in subfolders
+
         for file in files:
             # skip non-image file
             if not is_image(file):
@@ -547,9 +564,12 @@ def faces_inside(directory="", scale_factor=1, remove_image=False):
 
             for region in regions:
                 # crop the region
-                face, new_region = crop_image(image, region, scale_factor)
+                if scale_factor != 1:
+                    region = region.scale(scale_factor, scale_factor)
 
-                yield face, new_region
+                face = crop_image(image, region)
+
+                yield face, region
 
             if remove_image is True:
                 os.remove(os.path.join(path, file))
@@ -594,15 +614,7 @@ def ibug_dataset(folder="."):
         image = cv2.imread(ipath)
 
         # read landmarks
-        marks = []
-        with open(fpath, "r") as ann:
-            lines = ann.readlines()[3:-2]
-
-            for line in lines:
-                x, y = line.split()[:2]
-                x = int(x.split(".")[0])
-                y = int(y.split(".")[0])
-                marks.append((x, y))
+        marks = Annotation.read_ibug_annotation(fpath)
 
         yield image, marks, fpath
 
@@ -619,9 +631,6 @@ def prominent_face(faces):
         if area > max_area:
             max_area = area
             max_face = face
-
-    if max_face is None:
-        print("face none")
 
     return max_face
 
@@ -681,6 +690,44 @@ def points_region(pts):
     bottom = max(pts, key=lambda p: p[1])[1]
 
     return Region.tuple((left, top, right, bottom))
+
+
+def naive_flip_landmarks(points, image):
+    '''flipping naively 68-landmark point'''
+    pts = points.copy()
+    h, w = image.shape[:2]
+
+    # adjust position
+    for i in range(0, 68):
+        x, y = pts[i]
+        x = w - x
+        pts[i] = (x, y)
+
+    # swapping items
+    for i in range(0, 8):
+        pts[i], pts[16 - i] = pts[16 - i], pts[i]
+
+    for i in range(0, 5):
+        pts[17 + i], pts[26 - i] = pts[26 - i], pts[17 + i]
+
+    pts[31], pts[35] = pts[35], pts[31]
+    pts[32], pts[34] = pts[34], pts[32]
+
+    for i in range(0, 4):
+        pts[36 + i], pts[45 - i] = pts[45 - i], pts[36 + i]
+
+    pts[40], pts[47] = pts[47], pts[40]
+    pts[41], pts[46] = pts[46], pts[41]
+    pts[48], pts[54] = pts[54], pts[48]
+    pts[49], pts[53] = pts[53], pts[49]
+    pts[50], pts[52] = pts[52], pts[50]
+    pts[59], pts[55] = pts[55], pts[59]
+    pts[58], pts[56] = pts[56], pts[58]
+    pts[60], pts[64] = pts[64], pts[60]
+    pts[61], pts[63] = pts[63], pts[61]
+    pts[67], pts[65] = pts[65], pts[67]
+
+    return pts
 
 
 # -----------------------------------------------------------------------------
