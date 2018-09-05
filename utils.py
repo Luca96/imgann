@@ -77,6 +77,51 @@ class Colors:
     purple = (255, 64, 255)
 
 
+class Options:
+    '''incapsulate a set of predefine dlib shape predictor
+    training options'''
+
+    def create(tree_depth, cascades, pool_size, splits,
+               threads=8, oversampling=20):
+        '''returns the option obj with the given values'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = tree_depth
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = cascades
+        options.be_verbose = True
+        options.feature_pool_size = pool_size
+        options.num_test_splits = splits
+        options.oversampling_amount = oversampling
+        return options
+
+    def accurate(threads=8, oversampling=20):
+        '''use to train an accurate shape-predictor, decrease [oversampling]
+        for a faster training'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 4
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 15
+        options.be_verbose = True
+        options.feature_pool_size = 450
+        options.num_test_splits = 25
+        options.oversampling_amount = oversampling
+
+    def mini(threads=8, oversampling=20):
+        '''use to train a minified shape-predictor, but
+        still accurate'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 3
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 12
+        options.be_verbose = True
+        options.feature_pool_size = 450
+        options.num_test_splits = 25
+        options.oversampling_amount = oversampling
+
+
 class Annotation:
     '''face annotations (.ann extension)'''
 
