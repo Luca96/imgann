@@ -30,39 +30,29 @@ import utils
 import numpy as np
 
 from xml import Xml
+from utils import show_properly
 from utils import Keys, Colors
 from utils import Annotation, Region
 
 
 def region(face):
     '''return a region (0, 0, w, h) for the cropped face'''
-    return (0, 0, face.shape[1], face.shape[0])
-
-
-def show_properly(image, size=600):
-    '''resize too large images'''
-    h, w = image.shape[:2]
-    ratio = h / w
-
-    fx = 1 / (w * ratio / size)
-    fy = 1 / (h / size)
-
-    return cv2.resize(image, None, fx=fx, fy=fy, interpolation=cv2.INTER_CUBIC)
+    return Region(0, 0, face.shape[1], face.shape[0])
 
 
 def my_noise(image):
     '''add simulated camera noise to the given image'''
     out = image.copy()
     h, w = image.shape[:2]
+    amount = int((h * w) * (3 / 100))
 
-    for row in range(0, h):
-        for col in range(0, w):
-            # add noise randomly
-            if np.random.randint(0, 100) >= 97:
-                b = np.random.randint(0, 128)
-                g = np.random.randint(0, 180)
-                r = np.random.randint(0, 256)
-                out[row][col] = [b, g, r]
+    for i in range(0, amount):
+        row = np.random.randint(0, h)
+        col = np.random.randint(0, w)
+        b = np.random.randint(0, 128)
+        g = np.random.randint(0, 180)
+        r = np.random.randint(0, 256)
+        out[row][col] = [b, g, r]
 
     return out
 
@@ -72,23 +62,26 @@ def augment_data(image, face, landmarks):
     returns an array of 3 tuple (image, landmarks)'''
     assert(type(face) is Region)
 
+    h, w = image.shape[:2]
     angle = 30
     pivot = face.center()
 
     # 30 degree rotation
     A = utils.rotate_image(image, angle, pivot)
     B = utils.rotate_landmarks(landmarks, pivot, angle)
+    R1 = utils.points_region(B)
 
     # -30 degree rotatation
     C = utils.rotate_image(image, -angle, pivot)
     D = utils.rotate_landmarks(landmarks, pivot, -angle)
+    R2 = utils.points_region(D)
 
-    # simulated noise with random rotation
-    angle = np.random.randint(0, 31)
-    E = utils.rotate_image(my_noise(image), angle, pivot)
-    F = utils.rotate_landmarks(landmarks, pivot, angle)
+    # mirroring
+    E = utils.flip_image(image)
+    F = utils.naive_flip_landmarks(landmarks, w)
+    R3 = face.flip(width=w)
 
-    return [(A, B), (C, D), (E, F)]
+    return [(A, B, R1), (C, D, R2), (E, F, R3)]
 
 
 def build_trainset(input_dir="data", output_dir="trainset", win_size=321):
@@ -155,9 +148,12 @@ def build_trainset(input_dir="data", output_dir="trainset", win_size=321):
 def generate_training_xml(name, folder="trainset"):
     '''create an xml file suitable for training dlib shape predictor model'''
     xml = Xml(name)
+    i = 0
 
     for annotation, path in Annotation.inside(folder):
         xml.append(path, [annotation.box], [annotation.points])
+        i = i + 1
+        print("{} writing: {}".format(i, path))
 
     xml.close()
 
@@ -236,15 +232,15 @@ def train_model(name, xml):
         > default: 4
     '''
     options = dlib.shape_predictor_training_options()
-    options.tree_depth = 3
+    options.tree_depth = 3  # 4
     options.nu = 0.1
     options.num_threads = 8
-    options.cascade_depth = 10 + 2
+    options.cascade_depth = 12  # 15
     options.be_verbose = True
 
-    options.feature_pool_size = 400 + 50
-    options.num_test_splits = 20 + 10
-    # options.oversampling_amount = 20
+    options.feature_pool_size = 400 + 20  # 400
+    options.num_test_splits = 20 + 5
+    options.oversampling_amount = 20
     # options.oversampling_translation_jitter = 0.1
 
     dlib.train_shape_predictor(xml, name, options)
@@ -252,43 +248,23 @@ def train_model(name, xml):
 
 def test(folder="testset", model="dlib/shape_predictor_68_face_landmarks.dat"):
     utils.init_face_detector(True, 150)
-    # utils.load_shape_predictor(model)
+    utils.load_shape_predictor(model)
+    my_sp = utils.shape_predictor
+    dlib_sp = dlib.shape_predictor("dlib/shape_predictor_68_face_landmarks.dat")
 
-    import os
+    for face, r in utils.faces_inside(folder):
+        box = region(face)
 
-    for img, path in utils.images_inside(folder):
-        debug_faces_founded(img, detector="cnn")
-        # folder, file = os.path.split(path)
-        # a_path = os.path.join(folder, file.replace(".jpg", ".pts"))
+        utils.shape_predictor = my_sp
+        lmarks0 = utils.detect_landmarks(face, box)
 
-        # pts = utils.detect_landmarks(img, utils.detect_faces(img)[0])
-        # utils.draw_points(img, pts)
+        utils.shape_predictor = dlib_spq
+        lmarks1 = utils.detect_landmarks(face, box)
 
-        # with open(a_path, "r") as file:
-        #     lines = file.readlines()[3:-2]
-
-        #     for line in lines:
-        #         x, y = line.split()[:2]
-        #         x = int(x.split(".")[0])
-        #         y = int(y.split(".")[0])
-
-        #         utils.draw_point(img, x, y, color=Colors.green)
-
-        ann = utils.get_file_with(extension="pts", at_path=path)
-        pts = Annotation.parse_ibug_annotation(ann)
-
-        utils.draw_points(img, pts)
-        utils.draw_rect(img, utils.points_region(pts), Colors.green)
-
-        face = utils.detect_faces(img)[0]
-        print(utils.is_face_aligned_with_landmarks(face, pts))
-
-        while (1):
-            cv2.imshow("window", show_properly(img))
-            key = cv2.waitKey(20) & 0Xff
-
-            if key == Keys.ESC:
-                break
+        # draw results
+        utils.draw_points(face, lmarks1, color=Colors.green)
+        utils.draw_points(face, lmarks0, color=Colors.red)
+        utils.show_image(show_properly(face))
 
 
 def test_augment():
@@ -368,7 +344,6 @@ def another_test():
                     y = int(k.pt[1] + p[1])
                     utils.draw_point(img, x, y, radius=1)
 
-
         while True:
             cv2.imshow("window", show_properly(img))
             key = cv2.waitKey(20) & 0Xff
@@ -390,11 +365,11 @@ def adjust_landmarks(region, pts):
     return new_pts
 
 
-def build_trainset_auto(src="dataset", dst="trainset"):
+def build_trainset_auto(src="dataset", dst="trainset", debug=False):
     '''build a trainset automatically from an ibug-like dataset,
     the images are taken from [src] folder and saved to [dst] folder'''
     utils.init_face_detector(True, 150)
-    DEBUG = False
+    qualiy = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
 
     # file count for naming
     count = int(utils.count_files_inside(dst) / 8)
@@ -426,32 +401,31 @@ def build_trainset_auto(src="dataset", dst="trainset"):
 
         # augumentations
         i = 0
-        for image, landmarks in augment_data(img, face, lmarks):
-            box = utils.points_region(landmarks)
+        for image, landmarks, box in augment_data(img, face, lmarks):
+            i = i + 1
 
-            if DEBUG:
-                utils.draw_points(image, landmarks)
+            if debug:
                 utils.draw_rect(image, box, color=Colors.yellow)
+                utils.draw_points(image, landmarks, color=Colors.purple)
                 name = f"image{i}"
-                i = i + 1
                 utils.show_image(show_properly(image), window=name)
+            else:
+                # save annotation and image
+                ipath = os.path.join(dst, f"face{count}_{i}.jpg")
+                apath = os.path.join(dst, f"face{count}_{i}.ann")
+                cv2.imwrite(ipath, image, qualiy)
+                Annotation(apath, box.as_list()[:4], landmarks).save()
 
-            # save annotation and image
-            ipath = os.path.join(dst, f"face{count}_{i + 1}.jpg")
-            apath = os.path.join(dst, f"face{count}_{i + 1}.ann")
-            cv2.imwrite(ipath, image)
-            Annotation(apath, box.as_list()[:4], landmarks).save()
-
-        if DEBUG:
+        if debug:
             utils.draw_rect(img, face, color=Colors.red)
             utils.draw_points(img, lmarks, color=Colors.green)
             utils.show_image(show_properly(img))
-
-        # save image and annotation
-        ipath = os.path.join(dst, f"face{count}.jpg")
-        apath = os.path.join(dst, f"face{count}.ann")
-        cv2.imwrite(ipath, img)
-        Annotation(apath, face.as_list()[:4], lmarks).save()
+        else:
+            # save image and annotation
+            ipath = os.path.join(dst, f"face{count}.jpg")
+            apath = os.path.join(dst, f"face{count}.ann")
+            cv2.imwrite(ipath, img, qualiy)
+            Annotation(apath, face.as_list()[:4], lmarks).save()
 
         count = count + 1
 
@@ -461,10 +435,9 @@ def build_trainset_auto(src="dataset", dst="trainset"):
 
 if __name__ == '__main__':
     # build_trainset()
-    # test(folder="testset", model="new_sp_68.dat")
-    # test(folder="helen")
+    # test(folder="images", model="sp_68_fast.dat")
     # xml_file = "new_sp_68.xml"
-    # generate_training_xml(xml_file)
-    # train_model("sp_68_clone.dat", "labels_ibug_300W.xml")
+    # generate_training_xml("boosted_ibug.xml")
+    # train_model("sp_68_mini.dat", "labels_ibug_300W_train.xml")
     # another_test()
-    build_trainset_auto(src="dataset/helen")
+    build_trainset_auto(src="dataset", debug=False)

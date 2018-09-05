@@ -199,6 +199,21 @@ class Region:
 
         return self
 
+    def flip(self, width=None, height=None):
+        '''flip the current region along x-axis if [width] is specified,
+        and along y-axis if [height] is provided'''
+        copy = self.copy()
+
+        if width is not None:
+            copy.right = width - self.left
+            copy.left = copy.right - self.width
+
+        if height is not None:
+            copy.top = height - self.bottom
+            copy.bottom = copy.top + self.height
+
+        return copy
+
     def move_at(self, pt, axis=None):
         '''move the center of region in order to be at the given point,
         optionally axis can be locked'''
@@ -692,15 +707,14 @@ def points_region(pts):
     return Region.tuple((left, top, right, bottom))
 
 
-def naive_flip_landmarks(points, image):
+def naive_flip_landmarks(points, width):
     '''flipping naively 68-landmark point'''
     pts = points.copy()
-    h, w = image.shape[:2]
 
     # adjust position
     for i in range(0, 68):
         x, y = pts[i]
-        x = w - x
+        x = width - x
         pts[i] = (x, y)
 
     # swapping items
