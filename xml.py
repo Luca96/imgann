@@ -59,7 +59,7 @@ class Xml:
 
         # write points for every box
         for i, box in enumerate(boxes):
-            t, l, w, h = box
+            l, t, w, h = box
 
             s = f"{t2}<box top='{t}' left='{l}' width='{w}' height='{h}'>\n"
             f.write(s)

@@ -107,6 +107,32 @@ class Options:
         options.feature_pool_size = 450
         options.num_test_splits = 25
         options.oversampling_amount = oversampling
+        return options
+
+    def ultra(threads=8):
+        '''insane training options'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 5
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 15
+        options.be_verbose = True
+        options.feature_pool_size = 400 * 2
+        options.num_test_splits = 20 * 2
+        options.oversampling_amount = 15
+        return options
+
+
+    def dlib(threads=8):
+        '''same options used by dlib shape predictors'''
+        options = dlib.shape_predictor_training_options()
+        options.oversampling_amount = 40
+        options.num_threads = threads
+        options.cascade_depth = 15
+        options.feature_pool_size = 800
+        options.num_test_splits = 150
+        options.be_verbose = True
+        return options
 
     def mini(threads=8, oversampling=20):
         '''use to train a minified shape-predictor, but
@@ -115,19 +141,22 @@ class Options:
         options.tree_depth = 3
         options.nu = 0.1
         options.num_threads = threads
-        options.cascade_depth = 12
+        options.cascade_depth = 12 + 1
         options.be_verbose = True
-        options.feature_pool_size = 450
-        options.num_test_splits = 25
+        options.feature_pool_size = 450 + 150
+        options.num_test_splits = 25 - 5 + 100
         options.oversampling_amount = oversampling
+        return options
 
 
 class Annotation:
     '''face annotations (.ann extension)'''
 
-    def __init__(self, path, box=[], points=[]):
+    def __init__(self, path, box=None, points=[]):
+        assert(type(box) is Region)
+
         self.path = path
-        self.box = box
+        self.box = [box.left, box.top, box.width, box.height]
         self.points = points
 
     def save(self):
@@ -135,14 +164,14 @@ class Annotation:
         with open(self.path, "w") as f:
             f.write(json.dumps({'box': self.box, 'points': self.points}))
 
-    def load(self):
+    def load(path):
         '''load an annotation obj froma file'''
-        with open(self.path, 'r') as file:
+        with open(path, 'r') as file:
             data = json.loads(file.read())
-            self.box = data["box"]
-            self.points = data["points"]
+            x, y, w, h = data["box"]
+            points = data["points"]
 
-        return self
+        return Annotation(path, Region(x, y, w, h), points)
 
     def inside(folder="."):
         '''iterate through all annotation inside the given folder'''
@@ -152,7 +181,7 @@ class Annotation:
             # load the annotation relative to the current image
             ann_path = os.path.join(folder, file.split(".")[0] + ".ann")
 
-            yield Annotation(ann_path).load(), path
+            yield Annotation.load(ann_path), path
 
     def read_ibug_annotation(path=None):
         '''returns an array of the points defined inside the given
@@ -609,7 +638,6 @@ def faces_inside(directory="", scale_factor=1, remove_image=False):
 
     for path, dirs, files in os.walk(directory):
         # scan every file in subfolders
-
         for file in files:
             # skip non-image file
             if not is_image(file):
@@ -633,6 +661,12 @@ def faces_inside(directory="", scale_factor=1, remove_image=False):
 
             if remove_image is True:
                 os.remove(os.path.join(path, file))
+
+        # explore subfolders
+        for folder in dirs:
+            d = os.path.join(path, folder)
+            for _face, _region in faces_inside(d, scale_factor, remove_image):
+                yield _face, _region
 
 
 def is_face_aligned_with_landmarks(rect, points):
