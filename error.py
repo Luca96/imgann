@@ -26,6 +26,7 @@
 import math
 import utils
 
+from utils import dlib
 from utils import Colors
 
 
@@ -73,6 +74,13 @@ def point_to_point(truth, measured):
     return Min, Max, Avg / num
 
 
+def test_shape_predictor(xml, model):
+    '''wraps the dlib.test_shape_predictor method, to test
+    the accuracy of the [model] on the labels described in [xml]'''
+    error = dlib.test_shape_predictor(xml, model)
+    print("model error: {} on {}".format(error, xml))
+
+
 def of_dataset(folder="testset", model=None, view=False):
     '''measure the error across the given dataset,
     it compares the measured points with the annotated ground truth,
@@ -81,20 +89,19 @@ def of_dataset(folder="testset", model=None, view=False):
 
     # load face and landmark detectors
     utils.load_shape_predictor(model)
-    utils.init_face_detector(True, 150)
+    # utils.init_face_detector(True, 150)
 
     # init average-error
     err = 0
     num = 0
 
     for img, lmarks, path in utils.ibug_dataset(folder):
-        num = num + 1
-
         # detections
-        face = utils.prominent_face(utils.detect_faces(img))
+        face = utils.prominent_face(utils.detect_faces(img, detector="dlib"))
         measured = utils.detect_landmarks(img, face)
 
         # get error
+        num += 1
         err += normalized_root_mean_square(lmarks, measured)
 
         # results:
@@ -104,10 +111,11 @@ def of_dataset(folder="testset", model=None, view=False):
             utils.draw_points(img, measured, color=Colors.red)
             utils.show_image(utils.show_properly(utils.crop_image(img, face)))
 
+    print(err, num, err / num)
     print("average NRMS Error for {} is {}".format(folder, err / num))
 
 
-def compare_models(folder="trainset", m1=None, m2=None, view=False):
+def compare_models(folder="testset", m1=None, m2=None, view=False):
     '''compare the [m1] shape_predictor aganist the [m2] model,
     optionally you can [view] the results'''
     assert(m1 and m2)
@@ -126,16 +134,21 @@ def compare_models(folder="trainset", m1=None, m2=None, view=False):
     num = 0
 
     for face, region in utils.faces_inside(folder):
+        h, w = face.shape[:2]
+        if h == 0 or w == 0:
+            continue
+
+        box = utils.Region(0, 0, region.width, region.height)
         # detect landmarks
         utils.shape_predictor = sp_m1
-        lmarks_m1 = utils.detect_landmarks(face, region)
+        lmarks_m1 = utils.detect_landmarks(face, box)
 
         utils.shape_predictor = sp_m2
-        lmarks_m2 = utils.detect_landmarks(face, region)
+        lmarks_m2 = utils.detect_landmarks(face, box)
 
         # update error:
         num += 1
-        err += normalized_root_mean_square(lmarks_m1, lmarks_m2)
+        # err += normalized_root_mean_square(lmarks_m1, lmarks_m2)
 
         # results:
         if view is True:
@@ -143,4 +156,7 @@ def compare_models(folder="trainset", m1=None, m2=None, view=False):
             utils.draw_points(face, lmarks_m2, color=Colors.red)
             utils.show_image(utils.show_properly(face))
 
-    print("the NRMSE of m1 aganist m2 is {}".format(err / num))
+    if num != 0:
+        err /= num
+
+    print("the NRMSE of m1 aganist m2 is {}".format(err))
