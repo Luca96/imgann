@@ -27,6 +27,7 @@ import os
 import cv2
 import dlib
 import json
+import math
 import numpy as np
 import argparse
 
@@ -82,7 +83,7 @@ class Options:
     training options'''
 
     def create(tree_depth, cascades, pool_size, splits,
-               threads=8, oversampling=20):
+               threads=4, oversampling=20):
         '''returns the option obj with the given values'''
         options = dlib.shape_predictor_training_options()
         options.tree_depth = tree_depth
@@ -95,7 +96,7 @@ class Options:
         options.oversampling_amount = oversampling
         return options
 
-    def accurate(threads=8, oversampling=20):
+    def accurate(threads=4, oversampling=20):
         '''use to train an accurate shape-predictor, decrease [oversampling]
         for a faster training'''
         options = dlib.shape_predictor_training_options()
@@ -104,26 +105,12 @@ class Options:
         options.num_threads = threads
         options.cascade_depth = 15
         options.be_verbose = True
-        options.feature_pool_size = 450
-        options.num_test_splits = 25
+        options.feature_pool_size = 800
+        options.num_test_splits = 150 + 50
         options.oversampling_amount = oversampling
         return options
 
-    def ultra(threads=8):
-        '''insane training options'''
-        options = dlib.shape_predictor_training_options()
-        options.tree_depth = 5
-        options.nu = 0.1
-        options.num_threads = threads
-        options.cascade_depth = 15
-        options.be_verbose = True
-        options.feature_pool_size = 400 * 2
-        options.num_test_splits = 20 * 2
-        options.oversampling_amount = 15
-        return options
-
-
-    def dlib(threads=8):
+    def dlib(threads=4):
         '''same options used by dlib shape predictors'''
         options = dlib.shape_predictor_training_options()
         options.oversampling_amount = 40
@@ -134,17 +121,87 @@ class Options:
         options.be_verbose = True
         return options
 
-    def mini(threads=8, oversampling=20):
+    def mini(threads=4, oversampling=20):
         '''use to train a minified shape-predictor, but
         still accurate'''
         options = dlib.shape_predictor_training_options()
         options.tree_depth = 3
         options.nu = 0.1
         options.num_threads = threads
-        options.cascade_depth = 12 + 1
+        options.cascade_depth = 15
         options.be_verbose = True
-        options.feature_pool_size = 450 + 150
-        options.num_test_splits = 25 - 5 + 100
+        options.feature_pool_size = 800
+        options.num_test_splits = 150
+        options.oversampling_amount = oversampling
+        return options
+
+    def fast(threads=4, oversampling=20):
+        '''use to train a minified shape-predictor, but
+        still accurate'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 3
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 13
+        options.be_verbose = True
+        options.feature_pool_size = 200
+        options.num_test_splits = 200
+        options.oversampling_amount = oversampling
+        return options
+
+    def light(threads=4, oversampling=20):
+        '''use to train a minified shape-predictor, but
+        still accurate'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 2
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 15
+        options.be_verbose = True
+        options.feature_pool_size = 300
+        options.num_test_splits = 300
+        options.oversampling_amount = oversampling
+        return options
+
+    def lf(threads=4, oversampling=20):
+        '''use to train a minified shape-predictor, but
+        still accurate'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 2
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 10
+        options.be_verbose = True
+        options.feature_pool_size = 200
+        options.num_test_splits = 300
+        options.oversampling_amount = oversampling
+        return options
+
+    def optimal(threads=4, oversampling=20, tree_depth=10):
+        '''train a balanced shape predictor
+        in terms of speed, accuracy and size'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 3
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = tree_depth + 1
+        options.be_verbose = True
+        options.feature_pool_size = 150 + 50
+        options.num_test_splits = 350
+        options.oversampling_amount = oversampling
+        return options
+
+    def fastest(threads=4, oversampling=20):
+        '''use to train a minified shape-predictor, but
+        still accurate'''
+        options = dlib.shape_predictor_training_options()
+        options.tree_depth = 3
+        options.nu = 0.1
+        options.num_threads = threads
+        options.cascade_depth = 13
+        options.be_verbose = True
+        options.feature_pool_size = 100
+        options.num_test_splits = 250
         options.oversampling_amount = oversampling
         return options
 
@@ -326,8 +383,8 @@ class Region:
 
     def origin(self, x=0, y=0):
         '''change the top-left corner of the region'''
-        self.x = x
-        self.y = y
+        self.left = x
+        self.top = y
 
     def area(self):
         '''returns the area of the region'''
@@ -416,7 +473,10 @@ def open_file(args):
 
 def count_files_inside(directory="."):
     '''return the number of files (does not consider folders) in directory'''
-    path, dirs, files = next(os.walk(directory))
+    try:
+        path, dirs, files = next(os.walk(directory))
+    except StopIteration:
+        return 0
 
     return len(files)
 
@@ -537,6 +597,10 @@ def images_inside(directory=""):
             img_path = os.path.join(path, file)
 
             yield cv2.imread(img_path), img_path
+
+        for folder in dirs:
+            for i, p in images_inside(folder):
+                yield i, p
 
 
 def show_image(image, window="window", onSkip=void, onQuit=void):
@@ -729,6 +793,17 @@ def prominent_face(faces):
     return max_face
 
 
+def frontal_face(image, face, eye_sx, eye_dx):
+    '''returns rotated image and rotatation in degrees'''
+    assert(type(face) is Region)
+
+    dy = eye_dx[1] - eye_sx[1]
+    dx = eye_dx[0] - eye_sx[0]
+    angle = math.degrees(math.atan2(dy, dx))
+
+    return rotate_image(image, angle, face.center()), angle
+
+
 # -----------------------------------------------------------------------------
 # -- LANDMARK UTILS
 # -----------------------------------------------------------------------------
@@ -839,13 +914,21 @@ def draw_rects(image, regions, color=(128, 0, 128), thickness=2):
         cv2.rectangle(image, r.tl(), r.br(), color, thickness)
 
 
-def draw_point(image, x, y, radius=3, color=(0, 255, 255), thickness=-1):
+def draw_point(image, x, y, radius=-1, color=(0, 255, 255), thickness=-1):
     '''draw a circle on image at the given coordinate'''
+    if radius <= -1:
+        h, w = image.shape[:2]
+        radius = int(2 + (h / 600) + (w / 600))
+
     cv2.circle(image, (x, y), radius, color, thickness)
 
 
-def draw_points(image, points, radius=3, color=(0, 255, 255), thickness=-1):
+def draw_points(image, points, radius=-1, color=(0, 255, 255), thickness=-1):
     '''draw a list of (x, y) point tuple'''
+    if radius <= -1:
+        h, w = image.shape[:2]
+        radius = int(2 + (h / 600) + (w / 600))
+
     for i, p in enumerate(points):
         cv2.circle(image, (p[0], p[1]), radius, color, thickness)
         cv2.putText(image, str(i), (p[0], p[1]), cv2.FONT_HERSHEY_SIMPLEX,
