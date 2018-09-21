@@ -38,6 +38,8 @@ from cv2.dnn import blobFromImage
 
 
 # constants:
+TYPE_STR = type("")
+CV_FONT = cv2.FONT_HERSHEY_SIMPLEX
 caffe_model = "caffe/res10_300x300_ssd_iter_140000.caffemodel"
 caffe_proto = "caffe/deploy.prototxt"
 cf_values = (104.0, 177.0, 123.0)
@@ -184,9 +186,9 @@ class Options:
         options.tree_depth = 3
         options.nu = 0.1
         options.num_threads = threads
-        options.cascade_depth = tree_depth + 1
+        options.cascade_depth = tree_depth
         options.be_verbose = True
-        options.feature_pool_size = 150 + 50
+        options.feature_pool_size = 150
         options.num_test_splits = 350
         options.oversampling_amount = oversampling
         return options
@@ -584,7 +586,8 @@ def flip_image(image, axis=1):
 
 
 def images_inside(directory=""):
-    '''generate all the images within the given directory'''
+    '''generate all the images within the given directory,
+    generate (image, path)'''
 
     for path, dirs, files in os.walk(directory):
         # scan every file in subfolders
@@ -612,6 +615,9 @@ def show_image(image, window="window", onSkip=void, onQuit=void):
 
         if key == Keys.ESC:
             return onSkip()
+
+        if key == Keys.S:
+            return True  # say to skip stuff..
 
         elif key == Keys.Q:
             onQuit()
@@ -901,11 +907,25 @@ def naive_flip_landmarks(points, width):
 # -----------------------------------------------------------------------------
 # -- DRAWING UTILS
 # -----------------------------------------------------------------------------
-def draw_rect(image, rect, color=(128, 0, 128), thickness=2):
-    '''draw the given rectangle (Region obj) on image'''
+def draw_rect(image, rect, color=(128, 0, 128), thickness=2, label=None):
+    '''draw the given rectangle (Region obj) on image,
+    with an optional label'''
     assert(type(rect) is Region)
 
     cv2.rectangle(image, rect.tl(), rect.br(), color, thickness)
+
+    # puts a label on-top of the rect
+    if type(label) == TYPE_STR:
+        fscale = int(1 + (rect.height / 600) + (rect.width / 600)) / 2
+        size, pt = cv2.getTextSize(label, CV_FONT, fscale, 1)
+        w, h = size[0] * 1.1, size[1] * 1.4
+        top = int(rect.top - pt / 2 - 3)
+
+        label_rect = Region(rect.left, rect.top - h, w, h)
+        draw_rect(image, label_rect, color=color, thickness=-1)
+
+        cv2.putText(image, label, (rect.left + 4, top), CV_FONT,
+                    fscale, Colors.white)
 
 
 def draw_rects(image, regions, color=(128, 0, 128), thickness=2):
@@ -923,7 +943,8 @@ def draw_point(image, x, y, radius=-1, color=(0, 255, 255), thickness=-1):
     cv2.circle(image, (x, y), radius, color, thickness)
 
 
-def draw_points(image, points, radius=-1, color=(0, 255, 255), thickness=-1):
+def draw_points(image, points, radius=-1, font=CV_FONT,
+                color=(0, 255, 255), thickness=-1, text=True):
     '''draw a list of (x, y) point tuple'''
     if radius <= -1:
         h, w = image.shape[:2]
@@ -931,6 +952,75 @@ def draw_points(image, points, radius=-1, color=(0, 255, 255), thickness=-1):
 
     for i, p in enumerate(points):
         cv2.circle(image, (p[0], p[1]), radius, color, thickness)
-        cv2.putText(image, str(i), (p[0], p[1]), cv2.FONT_HERSHEY_SIMPLEX,
-                    radius / 10, Colors.white)
+
+        if text:
+            cv2.putText(image, str(i), (p[0], p[1]), font,
+                        radius / 10, Colors.white)
+
+
+def draw_face_landmarks(image, landmarks, color=Colors.green, tickness=1):
+    '''mimic the render_face_detections dlib function'''
+    assert(len(landmarks) == 68)
+
+    # Around Chin. Ear to Ear
+    for i in range(0, 16):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+
+    # left eyebrow
+    for i in range(17, 21):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+
+    # right eyebrow
+    for i in range(22, 26):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+
+    # line on top of nose
+    for i in range(27, 30):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+
+    # bottom part of the nose
+    for i in range(31, 35):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+
+    # Line from the nose to the bottom part above
+    cv2.line(image, landmarks[31], landmarks[30], color, tickness, cv2.LINE_AA)
+    cv2.line(image, landmarks[35], landmarks[30], color, tickness, cv2.LINE_AA)
+
+    # left eye
+    for i in range(36, 41):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+    cv2.line(image, landmarks[36], landmarks[41], color, tickness, cv2.LINE_AA)
+
+    # right eye
+    for i in range(42, 47):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+    cv2.line(image, landmarks[42], landmarks[47], color, tickness, cv2.LINE_AA)
+
+    # lips: outer part
+    for i in range(48, 59):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+    cv2.line(image, landmarks[48], landmarks[59], color, tickness, cv2.LINE_AA)
+
+    # lips: inside part
+    for i in range(60, 67):
+        p1 = landmarks[i]
+        p2 = landmarks[i + 1]
+        cv2.line(image, p1, p2, color, tickness, cv2.LINE_AA)
+    cv2.line(image, landmarks[60], landmarks[67], color, tickness, cv2.LINE_AA)
 # -----------------------------------------------------------------------------
